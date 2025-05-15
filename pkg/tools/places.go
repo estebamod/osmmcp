@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -105,11 +106,9 @@ func HandleFindNearbyPlaces(ctx context.Context, rawInput mcp.CallToolRequest) (
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", osm.UserAgent)
 
-	// Execute request
-	client := osm.NewClient()
-	resp, err := client.Do(req)
+	// Execute request with rate limiting
+	resp, err := osm.DoRequest(ctx, req)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
 		return ErrorResponse("Failed to communicate with places service"), nil
@@ -260,14 +259,10 @@ func mapCategoryToOSMTags(category string) map[string][]string {
 
 // sortPlacesByDistance sorts places by distance (closest first)
 func sortPlacesByDistance(places []Place) {
-	// Simple bubble sort for now
-	for i := 0; i < len(places); i++ {
-		for j := i + 1; j < len(places); j++ {
-			if places[i].Distance > places[j].Distance {
-				places[i], places[j] = places[j], places[i]
-			}
-		}
-	}
+	// Replace bubble sort with sort.Slice for better performance
+	sort.Slice(places, func(i, j int) bool {
+		return places[i].Distance < places[j].Distance
+	})
 }
 
 // SearchCategoryTool returns a tool definition for searching places by category
@@ -366,11 +361,9 @@ func HandleSearchCategory(ctx context.Context, rawInput mcp.CallToolRequest) (*m
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", osm.UserAgent)
 
-	// Execute request
-	client := osm.NewClient()
-	resp, err := client.Do(req)
+	// Execute request with rate limiting
+	resp, err := osm.DoRequest(ctx, req)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
 		return ErrorResponse("Failed to communicate with places service"), nil

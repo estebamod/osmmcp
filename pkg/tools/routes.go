@@ -3,13 +3,17 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"time"
 
+	"github.com/NERVsystems/osmmcp/pkg/cache"
 	"github.com/NERVsystems/osmmcp/pkg/osm"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -70,16 +74,63 @@ func HandleGetRouteDirections(ctx context.Context, req mcp.CallToolRequest) (*mc
 	endLon := mcp.ParseFloat64(req, "end_lon", 0)
 	mode := mcp.ParseString(req, "mode", "car")
 
+	// Create a context with timeout for the request
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
 	// Validate coordinates
-	if startLat < -90 || startLat > 90 || endLat < -90 || endLat > 90 {
-		return ErrorResponse("Latitude must be between -90 and 90"), nil
+	if startLat < -90 || startLat > 90 {
+		return ErrorWithGuidance(&APIError{
+			Service:     "Validation",
+			StatusCode:  http.StatusBadRequest,
+			Message:     fmt.Sprintf("Invalid start latitude: %f", startLat),
+			Guidance:    "Latitude must be between -90 and 90 degrees",
+			Recoverable: true,
+		}), nil
 	}
-	if startLon < -180 || startLon > 180 || endLon < -180 || endLon > 180 {
-		return ErrorResponse("Longitude must be between -180 and 180"), nil
+
+	if startLon < -180 || startLon > 180 {
+		return ErrorWithGuidance(&APIError{
+			Service:     "Validation",
+			StatusCode:  http.StatusBadRequest,
+			Message:     fmt.Sprintf("Invalid start longitude: %f", startLon),
+			Guidance:    "Longitude must be between -180 and 180 degrees",
+			Recoverable: true,
+		}), nil
+	}
+
+	if endLat < -90 || endLat > 90 {
+		return ErrorWithGuidance(&APIError{
+			Service:     "Validation",
+			StatusCode:  http.StatusBadRequest,
+			Message:     fmt.Sprintf("Invalid end latitude: %f", endLat),
+			Guidance:    "Latitude must be between -90 and 90 degrees",
+			Recoverable: true,
+		}), nil
+	}
+
+	if endLon < -180 || endLon > 180 {
+		return ErrorWithGuidance(&APIError{
+			Service:     "Validation",
+			StatusCode:  http.StatusBadRequest,
+			Message:     fmt.Sprintf("Invalid end longitude: %f", endLon),
+			Guidance:    "Longitude must be between -180 and 180 degrees",
+			Recoverable: true,
+		}), nil
 	}
 
 	// Map transportation mode to OSRM profile
 	profile := mapModeToProfile(mode)
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("route:%s:%f,%f:%f,%f", profile, startLat, startLon, endLat, endLon)
+	if cachedData, found := cache.GetGlobalCache().Get(cacheKey); found {
+		logger.Debug("route cache hit", "key", cacheKey)
+		result, ok := cachedData.(*mcp.CallToolResult)
+		if ok {
+			return result, nil
+		}
+	}
 
 	// Build OSRM request URL
 	baseURL := fmt.Sprintf("%s/route/v1/%s", osm.OSRMBaseURL, profile)
@@ -88,38 +139,98 @@ func HandleGetRouteDirections(ctx context.Context, req mcp.CallToolRequest) (*mc
 	reqURL, err := url.Parse(baseURL + "/" + coordinates)
 	if err != nil {
 		logger.Error("failed to parse URL", "error", err)
-		return ErrorResponse("Internal server error"), nil
+		return ErrorWithGuidance(&APIError{
+			Service:     "OSRM",
+			StatusCode:  http.StatusInternalServerError,
+			Message:     "Internal server error",
+			Guidance:    GuidanceOSRMGeneral,
+			Recoverable: true,
+		}), nil
 	}
 
 	// Add query parameters
 	q := reqURL.Query()
-	q.Add("overview", "full")     // Include full geometry
-	q.Add("steps", "true")        // Include turn-by-turn instructions
-	q.Add("annotations", "false") // No additional annotations
+	q.Add("overview", "full")       // Include full geometry
+	q.Add("steps", "true")          // Include turn-by-turn instructions
+	q.Add("annotations", "false")   // No additional annotations
+	q.Add("geometries", "polyline") // Use polyline format
 	reqURL.RawQuery = q.Encode()
 
-	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
-	if err != nil {
-		logger.Error("failed to create request", "error", err)
-		return ErrorResponse("Failed to create request"), nil
+	// Wait for rate limiter
+	if err := osm.WaitForService(reqCtx, osm.ServiceOSRM); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			logger.Error("rate limiter context canceled", "error", err)
+			return ErrorWithGuidance(&APIError{
+				Service:     "OSRM",
+				StatusCode:  http.StatusRequestTimeout,
+				Message:     "Request timed out waiting for rate limiter",
+				Guidance:    GuidanceOSRMTimeout,
+				Recoverable: true,
+			}), nil
+		}
+		logger.Error("rate limiter error", "error", err)
 	}
 
-	httpReq.Header.Set("User-Agent", osm.UserAgent)
+	// Make HTTP request
+	httpReq, err := osm.NewRequestWithUserAgent(reqCtx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		logger.Error("failed to create request", "error", err)
+		return ErrorWithGuidance(&APIError{
+			Service:     "OSRM",
+			StatusCode:  http.StatusInternalServerError,
+			Message:     "Failed to create request",
+			Guidance:    GuidanceOSRMGeneral,
+			Recoverable: true,
+		}), nil
+	}
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(reqCtx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
-		return ErrorResponse("Failed to communicate with routing service"), nil
+
+		var apiErr *APIError
+		if errors.Is(err, context.DeadlineExceeded) {
+			apiErr = &APIError{
+				Service:     "OSRM",
+				StatusCode:  http.StatusRequestTimeout,
+				Message:     "Request timed out",
+				Guidance:    GuidanceOSRMTimeout,
+				Recoverable: true,
+			}
+		} else if errors.Is(err, context.Canceled) {
+			apiErr = &APIError{
+				Service:     "OSRM",
+				StatusCode:  499, // Client closed request
+				Message:     "Request canceled",
+				Guidance:    "The request was canceled before completion",
+				Recoverable: false,
+			}
+		} else {
+			apiErr = &APIError{
+				Service:     "OSRM",
+				StatusCode:  http.StatusServiceUnavailable,
+				Message:     "Failed to communicate with routing service",
+				Guidance:    GuidanceNetworkError,
+				Recoverable: true,
+			}
+		}
+
+		return ErrorWithGuidance(apiErr), nil
 	}
 	defer resp.Body.Close()
 
 	// Process response
 	if resp.StatusCode != http.StatusOK {
 		logger.Error("routing service returned error", "status", resp.StatusCode)
-		return ErrorResponse(fmt.Sprintf("Routing service error: %d", resp.StatusCode)), nil
+		return ErrorWithGuidance(&APIError{
+			Service:     "OSRM",
+			StatusCode:  resp.StatusCode,
+			Message:     fmt.Sprintf("Routing service error: %d", resp.StatusCode),
+			Guidance:    GuidanceOSRMGeneral,
+			Recoverable: true,
+		}), nil
 	}
 
 	// Parse OSRM response
@@ -146,16 +257,37 @@ func HandleGetRouteDirections(ctx context.Context, req mcp.CallToolRequest) (*mc
 
 	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil {
 		logger.Error("failed to decode response", "error", err)
-		return ErrorResponse("Failed to parse routing response"), nil
+		return ErrorWithGuidance(&APIError{
+			Service:     "OSRM",
+			StatusCode:  http.StatusInternalServerError,
+			Message:     "Failed to parse routing response",
+			Guidance:    GuidanceDataError,
+			Recoverable: true,
+		}), nil
 	}
 
 	// Check if any routes were found
 	if len(osrmResp.Routes) == 0 {
-		return ErrorResponse("No route found between the specified points"), nil
+		return ErrorWithGuidance(&APIError{
+			Service:     "OSRM",
+			StatusCode:  http.StatusOK, // OSRM returns 200 even when no route is found
+			Message:     "No route found between the specified points",
+			Guidance:    GuidanceOSRMRouteNotFound,
+			Recoverable: true,
+		}), nil
 	}
 
 	// Get the best route (first one)
 	osrmRoute := osrmResp.Routes[0]
+
+	// Decode the polyline geometry
+	polylinePoints := osm.DecodePolyline(osrmRoute.Geometry)
+
+	// Convert to our coordinate format
+	coords := make([][]float64, len(polylinePoints))
+	for i, point := range polylinePoints {
+		coords[i] = []float64{point.Longitude, point.Latitude}
+	}
 
 	// Create RouteDirections object
 	route := RouteDirections{
@@ -170,7 +302,7 @@ func HandleGetRouteDirections(ctx context.Context, req mcp.CallToolRequest) (*mc
 			Longitude: endLon,
 		},
 		Segments:    []Segment{},
-		Coordinates: decodePolyline(osrmRoute.Geometry),
+		Coordinates: coords,
 	}
 
 	// Process route segments
@@ -203,7 +335,12 @@ func HandleGetRouteDirections(ctx context.Context, req mcp.CallToolRequest) (*mc
 		return ErrorResponse("Failed to generate result"), nil
 	}
 
-	return mcp.NewToolResultText(string(resultBytes)), nil
+	result := mcp.NewToolResultText(string(resultBytes))
+
+	// Cache the result
+	cache.GetGlobalCache().SetWithTTL(cacheKey, result, 15*time.Minute) // Cache for 15 minutes
+
+	return result, nil
 }
 
 // SuggestMeetingPointTool returns a tool definition for suggesting meeting points
@@ -268,6 +405,19 @@ func HandleSuggestMeetingPoint(ctx context.Context, req mcp.CallToolRequest) (*m
 		if dist > maxDistance {
 			maxDistance = dist
 		}
+	}
+
+	// If participants are extremely far apart (> 50km), return an error
+	const maxAllowedDistance = 50000.0 // 50km
+	if maxDistance > maxAllowedDistance {
+		logger.Error("participants too far apart", "max_distance", maxDistance)
+		return ErrorWithGuidance(&APIError{
+			Service:     "Meeting Point",
+			StatusCode:  http.StatusBadRequest,
+			Message:     fmt.Sprintf("Participants are too far apart (%.1f km)", maxDistance/1000),
+			Guidance:    "Meeting points can only be suggested when participants are within 50km of each other",
+			Recoverable: false,
+		}), nil
 	}
 
 	// Set radius to max distance + 1000m, with minimum of 1000m and maximum of 5000m
@@ -344,13 +494,9 @@ func HandleSuggestMeetingPoint(ctx context.Context, req mcp.CallToolRequest) (*m
 	}
 
 	// Sort by average distance (closest first)
-	for i := 0; i < len(scoredPlaces); i++ {
-		for j := i + 1; j < len(scoredPlaces); j++ {
-			if scoredPlaces[i].AverageDistance > scoredPlaces[j].AverageDistance {
-				scoredPlaces[i], scoredPlaces[j] = scoredPlaces[j], scoredPlaces[i]
-			}
-		}
-	}
+	sort.Slice(scoredPlaces, func(i, j int) bool {
+		return scoredPlaces[i].AverageDistance < scoredPlaces[j].AverageDistance
+	})
 
 	// Create output
 	output := struct {
@@ -463,13 +609,4 @@ func generateInstruction(maneuverType, modifier, roadName string) string {
 		}
 		return fmt.Sprintf("Continue %s", roadName)
 	}
-}
-
-// decodePolyline decodes a polyline string to coordinates
-// Note: This is a simplified polyline decoder for OSRM's polyline format
-func decodePolyline(polyline string) [][]float64 {
-	// This is a simplification, in production you would use a proper polyline decoder
-	// Returning an empty array for now
-	// In a real implementation, this would decode the OSRM polyline format
-	return [][]float64{}
 }

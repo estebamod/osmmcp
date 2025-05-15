@@ -28,21 +28,21 @@ The server provides LLMs with tools to interact with OpenStreetMap data, includi
 
 ## Implemented Tools
 
-| Tool Name | Description |
-|-----------|-------------|
-| `geocode_address` | Convert an address or place name to geographic coordinates |
-| `reverse_geocode` | Convert geographic coordinates to a human-readable address |
-| `find_nearby_places` | Find points of interest near a specific location |
-| `search_category` | Search for places by category within a rectangular area |
-| `get_route_directions` | Get directions for a route between two locations |
-| `suggest_meeting_point` | Suggest an optimal meeting point for multiple people |
-| `explore_area` | Explore an area and get comprehensive information about it |
-| `find_charging_stations` | Find electric vehicle charging stations near a location |
-| `find_route_charging_stations` | Find electric vehicle charging stations along a route |
-| `analyze_commute` | Analyze transportation options between home and work locations |
-| `analyze_neighborhood` | Evaluate neighborhood livability for real estate and relocation decisions |
-| `find_schools_nearby` | Find educational institutions near a specific location |
-| `find_parking_facilities` | Find parking facilities near a specific location |
+| Tool Name | Description | Example Parameters |
+|-----------|-------------|-------------------|
+| `geocode_address` | Convert an address or place name to geographic coordinates | `{"address": "1600 Pennsylvania Ave, Washington DC"}` |
+| `reverse_geocode` | Convert geographic coordinates to a human-readable address | `{"latitude": 38.8977, "longitude": -77.0365}` |
+| `find_nearby_places` | Find points of interest near a specific location | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 1000, "category": "restaurant", "limit": 5}` |
+| `search_category` | Search for places by category within a rectangular area | `{"category": "cafe", "north_lat": 37.78, "south_lat": 37.77, "east_lon": -122.41, "west_lon": -122.42, "limit": 10}` |
+| `get_route_directions` | Get directions for a route between two locations | `{"start_lat": 37.7749, "start_lon": -122.4194, "end_lat": 37.8043, "end_lon": -122.2711, "mode": "car"}` |
+| `suggest_meeting_point` | Suggest an optimal meeting point for multiple people | `{"locations": [{"latitude": 37.7749, "longitude": -122.4194}, {"latitude": 37.8043, "longitude": -122.2711}], "category": "cafe", "limit": 3}` |
+| `explore_area` | Explore an area and get comprehensive information about it | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 1000}` |
+| `find_charging_stations` | Find electric vehicle charging stations near a location | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 5000, "limit": 10}` |
+| `find_route_charging_stations` | Find electric vehicle charging stations along a route | `{"start_lat": 37.7749, "start_lon": -122.4194, "end_lat": 37.8043, "end_lon": -122.2711, "range": 300, "buffer": 5000}` |
+| `analyze_commute` | Analyze transportation options between home and work locations | `{"home_latitude": 37.7749, "home_longitude": -122.4194, "work_latitude": 37.8043, "work_longitude": -122.2711, "transport_modes": ["car", "cycling", "walking"]}` |
+| `analyze_neighborhood` | Evaluate neighborhood livability for real estate and relocation decisions | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 1000, "include_price_data": true}` |
+| `find_schools_nearby` | Find educational institutions near a specific location | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 2000, "school_type": "elementary", "limit": 5}` |
+| `find_parking_facilities` | Find parking facilities near a specific location | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 1000, "type": "surface", "include_private": false, "limit": 5}` |
 
 ## Code Architecture and Design
 
@@ -52,15 +52,23 @@ The code follows software engineering best practices:
 2. **Separation of Concerns** - Tools, server logic, and utilities are cleanly separated
 3. **DRY (Don't Repeat Yourself)** - Common utilities are extracted into the `pkg/osm` package
 4. **Security First** - HTTP clients are properly configured with timeouts and connection limits
-5. **Structured Logging** - All logging is done via `slog` with consistent levels and formats
+5. **Structured Logging** - All logging is done via `slog` with consistent levels and formats:
+   - Debug: Developer detail, verbose or diagnostic messages
+   - Info: Routine operational messages
+   - Warn: Unexpected conditions that don't necessarily halt execution
+   - Error: Critical problems, potential or actual failures
 6. **SOLID Principles** - Particularly Single Responsibility and Interface Segregation
 7. **Registry Pattern** - All tools are defined in a central registry for improved maintainability
+8. **Google Polyline5 Format** - Standardized polyline encoding/decoding using Google's Polyline5 format
+9. **Precise Geospatial Calculations** - Accurate Haversine distance calculations with appropriate tolerances
+10. **Context-Aware Operations** - All operations properly handle context for cancellation and timeouts
 
 ## Usage
 
 ### Requirements
 
 - Go 1.24 or higher
+- OpenStreetMap API access (no API key required, but rate limits apply)
 
 ### Building the server
 
@@ -74,7 +82,7 @@ go build -o osmmcp ./cmd/osmmcp
 ./osmmcp
 ```
 
-The server also supports command-line flags:
+The server supports several command-line flags:
 
 ```bash
 # Show version information
@@ -85,6 +93,29 @@ The server also supports command-line flags:
 
 # Generate a Claude Desktop Client configuration file
 ./osmmcp --generate-config /path/to/config.json
+
+# Customize rate limits (requests per second)
+./osmmcp --nominatim-rps 1.0 --nominatim-burst 1
+./osmmcp --overpass-rps 1.0 --overpass-burst 1
+./osmmcp --osrm-rps 1.0 --osrm-burst 1
+
+# Set custom User-Agent string
+./osmmcp --user-agent "MyApp/1.0"
+```
+
+### Logging Configuration
+
+The server uses structured logging via `slog` with the following configuration:
+
+- Debug level: Enabled with `--debug` flag
+- Default level: Info
+- Format: Text-based with key-value pairs
+- Output: Standard error (stderr)
+
+Example log output:
+```
+2024-03-14T10:15:30.123Z INFO starting OpenStreetMap MCP server version=0.1.0 log_level=info user_agent=osm-mcp-server/0.1.0
+2024-03-14T10:15:30.124Z DEBUG rate limiter initialized service=nominatim rps=1.0 burst=1
 ```
 
 The server will start and listen for MCP requests on the standard input/output. You can use it with any MCP-compatible client or LLM integration.
@@ -145,6 +176,8 @@ No API keys are required as these are open public APIs, but the server follows u
 - `pkg/server` - MCP server implementation
 - `pkg/tools` - OpenStreetMap tool implementations and tool registry
 - `pkg/osm` - Common OpenStreetMap utilities and helpers
+- `pkg/geo` - Geographic types and calculations 
+- `pkg/cache` - Caching layer for API responses
 
 ### Adding New Tools
 

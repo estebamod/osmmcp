@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/NERVsystems/osmmcp/pkg/osm"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -51,7 +52,7 @@ func HandleGeocodeAddress(ctx context.Context, rawInput mcp.CallToolRequest) (*m
 	}
 
 	// Build request URL
-	reqURL, err := url.Parse(fmt.Sprintf("%s/search", nominatimBaseURL))
+	reqURL, err := url.Parse(fmt.Sprintf("%s/search", osm.NominatimBaseURL))
 	if err != nil {
 		logger.Error("failed to parse URL", "error", err)
 		return ErrorResponse("Internal server error"), nil
@@ -71,12 +72,8 @@ func HandleGeocodeAddress(ctx context.Context, rawInput mcp.CallToolRequest) (*m
 		return ErrorResponse("Failed to create request"), nil
 	}
 
-	// Set user agent (required by Nominatim's usage policy)
-	req.Header.Set("User-Agent", "osm-mcp-server/0.1.0")
-
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// Execute request with rate limiting
+	resp, err := osm.DoRequest(ctx, req)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
 		return ErrorResponse("Failed to communicate with geocoding service"), nil
@@ -185,7 +182,7 @@ func HandleReverseGeocode(ctx context.Context, rawInput mcp.CallToolRequest) (*m
 	}
 
 	// Build request URL
-	reqURL, err := url.Parse(fmt.Sprintf("%s/reverse", nominatimBaseURL))
+	reqURL, err := url.Parse(fmt.Sprintf("%s/reverse", osm.NominatimBaseURL))
 	if err != nil {
 		logger.Error("failed to parse URL", "error", err)
 		return ErrorResponse("Internal server error"), nil
@@ -206,12 +203,8 @@ func HandleReverseGeocode(ctx context.Context, rawInput mcp.CallToolRequest) (*m
 		return ErrorResponse("Failed to create request"), nil
 	}
 
-	// Set user agent (required by Nominatim's usage policy)
-	req.Header.Set("User-Agent", "osm-mcp-server/0.1.0")
-
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// Execute request with rate limiting
+	resp, err := osm.DoRequest(ctx, req)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
 		return ErrorResponse("Failed to communicate with geocoding service"), nil

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/NERVsystems/osmmcp/pkg/osm"
@@ -117,7 +118,7 @@ func HandleFindSchoolsNearby(ctx context.Context, req mcp.CallToolRequest) (*mcp
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
@@ -230,13 +231,9 @@ func HandleFindSchoolsNearby(ctx context.Context, req mcp.CallToolRequest) (*mcp
 	}
 
 	// Sort schools by distance (closest first)
-	for i := 0; i < len(schools); i++ {
-		for j := i + 1; j < len(schools); j++ {
-			if schools[i].Distance > schools[j].Distance {
-				schools[i], schools[j] = schools[j], schools[i]
-			}
-		}
-	}
+	sort.Slice(schools, func(i, j int) bool {
+		return schools[i].Distance < schools[j].Distance
+	})
 
 	// Limit results
 	if len(schools) > limit {

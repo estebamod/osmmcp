@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
+	"github.com/NERVsystems/osmmcp/pkg/osm"
 	"github.com/NERVsystems/osmmcp/pkg/server"
 )
 
@@ -16,6 +23,16 @@ var (
 	version        bool
 	debug          bool
 	generateConfig string
+	userAgent      string
+	mergeOnly      bool
+
+	// Rate limits for each service
+	nominatimRPS   float64
+	nominatimBurst int
+	overpassRPS    float64
+	overpassBurst  int
+	osrmRPS        float64
+	osrmBurst      int
 
 	// Build information
 	buildVersion = "0.1.0"
@@ -27,6 +44,20 @@ func init() {
 	flag.BoolVar(&version, "version", false, "Display version information")
 	flag.BoolVar(&debug, "debug", false, "Enable debug logging")
 	flag.StringVar(&generateConfig, "generate-config", "", "Generate a Claude Desktop Client config file at the specified path")
+	flag.StringVar(&userAgent, "user-agent", osm.UserAgent, "User-Agent string for OSM API requests")
+	flag.BoolVar(&mergeOnly, "merge-only", false, "Only merge new config, don't overwrite existing")
+
+	// Nominatim rate limits
+	flag.Float64Var(&nominatimRPS, "nominatim-rps", 1.0, "Nominatim rate limit in requests per second")
+	flag.IntVar(&nominatimBurst, "nominatim-burst", 1, "Nominatim rate limit burst size")
+
+	// Overpass rate limits
+	flag.Float64Var(&overpassRPS, "overpass-rps", 1.0, "Overpass rate limit in requests per second")
+	flag.IntVar(&overpassBurst, "overpass-burst", 1, "Overpass rate limit burst size")
+
+	// OSRM rate limits
+	flag.Float64Var(&osrmRPS, "osrm-rps", 1.0, "OSRM rate limit in requests per second")
+	flag.IntVar(&osrmBurst, "osrm-burst", 1, "OSRM rate limit burst size")
 }
 
 func main() {
@@ -53,7 +84,7 @@ func main() {
 
 	// Generate Claude Desktop config if requested
 	if generateConfig != "" {
-		if err := generateClientConfig(generateConfig); err != nil {
+		if err := generateClientConfig(generateConfig, mergeOnly); err != nil {
 			logger.Error("failed to generate config", "error", err)
 			os.Exit(1)
 		}
@@ -61,97 +92,132 @@ func main() {
 		return
 	}
 
+	// Update global user agent if specified
+	if userAgent != osm.UserAgent {
+		osm.SetUserAgent(userAgent)
+	}
+
+	// Update rate limits if specified
+	if nominatimRPS != 1.0 || nominatimBurst != 1 {
+		osm.UpdateNominatimRateLimits(nominatimRPS, nominatimBurst)
+	}
+	if overpassRPS != 1.0 || overpassBurst != 1 {
+		osm.UpdateOverpassRateLimits(overpassRPS, overpassBurst)
+	}
+	if osrmRPS != 1.0 || osrmBurst != 1 {
+		osm.UpdateOSRMRateLimits(osrmRPS, osrmBurst)
+	}
+
 	logger.Info("starting OpenStreetMap MCP server",
-		"version", version,
-		"log_level", logLevel.String())
+		"version", buildVersion,
+		"log_level", logLevel.String(),
+		"user_agent", userAgent,
+		"nominatim_rps", nominatimRPS,
+		"nominatim_burst", nominatimBurst,
+		"overpass_rps", overpassRPS,
+		"overpass_burst", overpassBurst,
+		"osrm_rps", osrmRPS,
+		"osrm_burst", osrmBurst)
 
-	// Create and run the MCP server
-	srv, err := server.NewServer()
-	if err != nil {
-		logger.Error("failed to create server", "error", err)
+	// Create context for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Create server with timeout
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      server.NewHandler(logger),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Start server in a goroutine
+	go func() {
+		logger.Info("starting server", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	<-ctx.Done()
+	logger.Info("shutting down server...")
+
+	// Create shutdown context with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Attempt graceful shutdown
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("server shutdown error", "error", err)
 		os.Exit(1)
 	}
 
-	logger.Info("server initialized, waiting for requests")
-	if err := srv.Run(); err != nil {
-		logger.Error("server error", "error", err)
-		os.Exit(1)
-	}
+	logger.Info("server stopped gracefully")
 }
 
-// generateClientConfig creates or updates a Claude Desktop Client config file
-func generateClientConfig(outputPath string) error {
-	logger := slog.Default()
-
-	// Get absolute path to executable
-	execPath, err := os.Executable()
-	if err != nil {
-		execPath = os.Args[0] // Fallback to args if cannot get executable path
+// generateClientConfig generates a configuration file for the Claude Desktop Client
+func generateClientConfig(path string, mergeOnly bool) error {
+	// Sanity check the path
+	if path == "" {
+		return fmt.Errorf("config path cannot be empty")
 	}
-	absExecPath, err := filepath.Abs(execPath)
-	if err != nil {
-		absExecPath = execPath // Use as is if cannot resolve absolute path
+	if !strings.HasSuffix(path, ".json") {
+		return fmt.Errorf("config file must have .json extension")
 	}
 
-	// Prepare our server config
-	osmConfig := map[string]interface{}{
-		"command": absExecPath,
-		"args":    []string{},
+	// Clean the path and check for path traversal attempts
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") || filepath.IsAbs(cleanPath) {
+		return fmt.Errorf("refusing to traverse outside workspace")
 	}
 
-	// Define the config structure
-	var config map[string]interface{}
+	// Create config directory if it doesn't exist
+	configDir := filepath.Dir(cleanPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
 
-	// Check if file exists already
-	if _, err := os.Stat(outputPath); err == nil {
-		// File exists, read it
-		data, err := os.ReadFile(outputPath)
-		if err != nil {
-			return fmt.Errorf("failed to read existing config: %w", err)
+	// Read existing config if it exists and mergeOnly is true
+	var existingConfig map[string]interface{}
+	if mergeOnly {
+		if data, err := os.ReadFile(cleanPath); err == nil {
+			if err := json.Unmarshal(data, &existingConfig); err != nil {
+				return fmt.Errorf("failed to parse existing config: %w", err)
+			}
 		}
+	}
 
-		// Parse existing JSON
-		if err := json.Unmarshal(data, &config); err != nil {
-			logger.Warn("existing config is not valid JSON, will create new", "error", err)
-			config = make(map[string]interface{})
+	// Create new config
+	config := map[string]interface{}{
+		"claude": map[string]interface{}{
+			"api_key": os.Getenv("CLAUDE_API_KEY"),
+			"model":   "claude-3-opus-20240229",
+		},
+		"server": map[string]interface{}{
+			"host": "localhost",
+			"port": 8080,
+		},
+	}
+
+	// Merge with existing config if needed
+	if mergeOnly && existingConfig != nil {
+		for k, v := range existingConfig {
+			if _, exists := config[k]; !exists {
+				config[k] = v
+			}
 		}
-	} else {
-		// File doesn't exist, create new config
-		config = make(map[string]interface{})
 	}
 
-	// Check if mcpServers exists, create it if not
-	mcpServers, ok := config["mcpServers"].(map[string]interface{})
-	if !ok {
-		mcpServers = make(map[string]interface{})
-		config["mcpServers"] = mcpServers
-	}
-
-	// Add or update our server
-	mcpServers["OSM"] = osmConfig
-
-	// Marshal to JSON with pretty printing
+	// Write config file
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Validate the JSON by attempting to unmarshal it
-	var validation interface{}
-	if err := json.Unmarshal(data, &validation); err != nil {
-		return fmt.Errorf("generated invalid JSON: %w", err)
-	}
-
-	// Add a newline at the end for better formatting
-	data = append(data, '\n')
-
-	// Make sure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	// Write to the output file
-	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+	if err := os.WriteFile(cleanPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

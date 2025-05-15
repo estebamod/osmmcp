@@ -26,4 +26,8 @@ go.work
 .vscode/
 
 # Generated/test config files
-test-config.json 
+test-config.json
+
+# Scratch space
+tmp/
+tmp/**/* 

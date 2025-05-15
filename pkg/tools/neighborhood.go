@@ -151,7 +151,7 @@ func HandleAnalyzeNeighborhood(ctx context.Context, req mcp.CallToolRequest) (*m
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
@@ -566,7 +566,7 @@ func getNeighborhoodName(ctx context.Context, lat, lon float64) string {
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return neighborhoodName

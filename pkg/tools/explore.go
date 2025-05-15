@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/NERVsystems/osmmcp/pkg/osm"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -119,7 +118,7 @@ func HandleExploreArea(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request with timeout
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)

@@ -111,7 +111,7 @@ func HandleFindChargingStations(ctx context.Context, req mcp.CallToolRequest) (*
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
@@ -313,7 +313,7 @@ func HandleFindRouteChargingStations(ctx context.Context, req mcp.CallToolReques
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)

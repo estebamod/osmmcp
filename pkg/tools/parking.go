@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/NERVsystems/osmmcp/pkg/osm"
@@ -124,7 +125,7 @@ func HandleFindParkingFacilities(ctx context.Context, req mcp.CallToolRequest) (
 	httpReq.Header.Set("User-Agent", osm.UserAgent)
 
 	// Execute request
-	client := osm.NewClient()
+	client := osm.GetClient(ctx)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.Error("failed to execute request", "error", err)
@@ -247,13 +248,9 @@ func HandleFindParkingFacilities(ctx context.Context, req mcp.CallToolRequest) (
 	}
 
 	// Sort facilities by distance (closest first)
-	for i := 0; i < len(facilities); i++ {
-		for j := i + 1; j < len(facilities); j++ {
-			if facilities[i].Distance > facilities[j].Distance {
-				facilities[i], facilities[j] = facilities[j], facilities[i]
-			}
-		}
-	}
+	sort.Slice(facilities, func(i, j int) bool {
+		return facilities[i].Distance < facilities[j].Distance
+	})
 
 	// Limit results
 	if len(facilities) > limit {

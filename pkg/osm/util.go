@@ -3,9 +3,10 @@ package osm
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"time"
+
+	"github.com/NERVsystems/osmmcp/pkg/geo"
 )
 
 const (
@@ -17,11 +18,12 @@ const (
 	// User agent for API requests (required by Nominatim's usage policy)
 	UserAgent = "osm-mcp-server/0.1.0"
 
-	// Earth radius in meters (approximate)
-	EarthRadius = 6371000.0
+	// Earth radius in meters (approximate) - re-exported from geo package
+	EarthRadius = geo.EarthRadius
 )
 
 // NewClient returns an HTTP client configured for OSM API requests
+// Deprecated: Use GetClient(ctx) instead for connection pooling
 func NewClient() *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
@@ -34,87 +36,16 @@ func NewClient() *http.Client {
 	}
 }
 
-// HaversineDistance calculates the great-circle distance between two points on a sphere
-// using the Haversine formula. The result is in meters.
+// HaversineDistance calculates the great-circle distance between two points
+// Deprecated: Use geo.HaversineDistance instead
 func HaversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	// Convert to radians
-	lat1Rad := lat1 * math.Pi / 180
-	lon1Rad := lon1 * math.Pi / 180
-	lat2Rad := lat2 * math.Pi / 180
-	lon2Rad := lon2 * math.Pi / 180
-
-	// Haversine formula
-	dLat := lat2Rad - lat1Rad
-	dLon := lon2Rad - lon1Rad
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	distance := EarthRadius * c
-
-	return distance
-}
-
-// BoundingBox represents a geographic bounding box with southwest and northeast corners
-type BoundingBox struct {
-	MinLat float64
-	MinLon float64
-	MaxLat float64
-	MaxLon float64
+	return geo.HaversineDistance(lat1, lon1, lat2, lon2)
 }
 
 // NewBoundingBox creates a new empty bounding box
-func NewBoundingBox() *BoundingBox {
-	return &BoundingBox{
-		MinLat: 90.0,
-		MinLon: 180.0,
-		MaxLat: -90.0,
-		MaxLon: -180.0,
-	}
-}
-
-// ExtendWithPoint extends the bounding box to include the specified point
-func (bb *BoundingBox) ExtendWithPoint(lat, lon float64) {
-	if lat < bb.MinLat {
-		bb.MinLat = lat
-	}
-	if lat > bb.MaxLat {
-		bb.MaxLat = lat
-	}
-	if lon < bb.MinLon {
-		bb.MinLon = lon
-	}
-	if lon > bb.MaxLon {
-		bb.MaxLon = lon
-	}
-}
-
-// Buffer adds a buffer around the bounding box in degrees
-func (bb *BoundingBox) Buffer(bufferMeters float64) {
-	// Convert meters to approximate degrees (crude approximation)
-	// 0.01 degrees ≈ 1.11 km at the equator
-	bufferDegrees := bufferMeters / 111000
-	bb.MinLat -= bufferDegrees
-	bb.MaxLat += bufferDegrees
-	bb.MinLon -= bufferDegrees
-	bb.MaxLon += bufferDegrees
-
-	// Ensure coordinates are within valid ranges
-	if bb.MinLat < -90 {
-		bb.MinLat = -90
-	}
-	if bb.MaxLat > 90 {
-		bb.MaxLat = 90
-	}
-	if bb.MinLon < -180 {
-		bb.MinLon = -180
-	}
-	if bb.MaxLon > 180 {
-		bb.MaxLon = 180
-	}
-}
-
-// String returns a string representation of the bounding box
-func (bb *BoundingBox) String() string {
-	return fmt.Sprintf("(%f,%f,%f,%f)", bb.MinLat, bb.MinLon, bb.MaxLat, bb.MaxLon)
+// Deprecated: Use geo.NewBoundingBox instead
+func NewBoundingBox() *geo.BoundingBox {
+	return geo.NewBoundingBox()
 }
 
 // CategoryMap maps common category names to OSM tags
@@ -184,4 +115,16 @@ var CategoryMap = map[string]map[string][]string{
 	"charging_station": {
 		"amenity": {"charging_station"},
 	},
+}
+
+// ValidateCoords validates latitude and longitude values
+// Returns an error if the coordinates are invalid
+func ValidateCoords(lat, lon float64) error {
+	if lat < -90 || lat > 90 {
+		return fmt.Errorf("invalid latitude: %f (must be between -90 and 90)", lat)
+	}
+	if lon < -180 || lon > 180 {
+		return fmt.Errorf("invalid longitude: %f (must be between -180 and 180)", lon)
+	}
+	return nil
 }
