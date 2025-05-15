@@ -4,8 +4,16 @@ This is a Go implementation of the OpenStreetMap MCP server that enhances LLM ca
 
 ## Overview
 
-This project is a Go port of the Python [OpenStreetMap MCP server](https://github.com/jagan-shanmugam/open-streetmap-mcp), 
+This project is a Go port of the Python [OpenStreetMap MCP server](https://github.com/jagan-shanmugam/open-streetmap-mcp) and the [MCPLink OSM server](https://www.mcplink.ai/mcp/jagan-shanmugam/osm-mcp-server), 
 implementing the [Model Context Protocol](https://github.com/mark3labs/mcp-go) to enable LLMs to interact with geospatial data.
+
+## Acknowledgments
+
+This implementation is based on two excellent sources:
+- [jagan-shanmugam/open-streetmap-mcp](https://github.com/jagan-shanmugam/open-streetmap-mcp) - The original Python implementation
+- [MCPLink OSM MCP Server](https://www.mcplink.ai/mcp/jagan-shanmugam/osm-mcp-server) - The MCPLink version with additional features
+
+We've reimplemented the functionality in Go with a focus on performance, maintainability, and ease of integration with Claude Desktop Client.
 
 ## Features
 
