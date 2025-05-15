@@ -4,9 +4,9 @@ This is a Go implementation of the OpenStreetMap MCP server that enhances LLM ca
 
 ## Overview
 
-This project is a Go OpenStreetMap MCP server.  It implemets the [Model Context Protocol](https://github.com/mark3labs/mcp-go) to enable LLMs to interact with geospatial data.
+This is a Go OpenStreetMap MCP server.  It implemets the [Model Context Protocol](https://github.com/mark3labs/mcp-go) to enable LLMs to interact with geospatial data.
 
-We've reimplemented the functionality in Go with a focus on performance, maintainability, and ease of integration with MCP desktop clients.
+Our focus focus on precision, performance, maintainability, and ease of integration with MCP desktop clients.
 
 ## Features
 
