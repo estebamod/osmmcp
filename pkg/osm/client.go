@@ -1,0 +1,178 @@
+// Package osm provides utilities for working with OpenStreetMap data.
+package osm
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"sync"
+	"time"
+
+	"log/slog"
+
+	"golang.org/x/time/rate"
+)
+
+const (
+	// DefaultUserAgent is the default User-Agent string
+	DefaultUserAgent = "OSMMCP/0.1.0"
+)
+
+var (
+	// Global HTTP client with connection pooling
+	httpClient *http.Client
+
+	// Rate limiters for each service
+	nominatimLimiter *rate.Limiter
+	overpassLimiter  *rate.Limiter
+	osrmLimiter      *rate.Limiter
+
+	// User agent string
+	userAgent     string
+	userAgentLock sync.RWMutex
+)
+
+// init initializes the global HTTP client and rate limiters
+func init() {
+	// Initialize HTTP client with connection pooling
+	httpClient = &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+		Timeout: 30 * time.Second,
+	}
+
+	// Initialize rate limiters with default values
+	initRateLimiters()
+
+	// Set default user agent
+	SetUserAgent(DefaultUserAgent)
+}
+
+// initRateLimiters initializes the rate limiters with default values
+func initRateLimiters() {
+	// Default to 1 request per second with burst of 1
+	nominatimLimiter = rate.NewLimiter(rate.Limit(1), 1)
+	overpassLimiter = rate.NewLimiter(rate.Limit(1), 1)
+	osrmLimiter = rate.NewLimiter(rate.Limit(1), 1)
+}
+
+// UpdateNominatimRateLimits updates the Nominatim rate limiter
+func UpdateNominatimRateLimits(rps float64, burst int) {
+	nominatimLimiter = rate.NewLimiter(rate.Limit(rps), burst)
+}
+
+// UpdateOverpassRateLimits updates the Overpass rate limiter
+func UpdateOverpassRateLimits(rps float64, burst int) {
+	overpassLimiter = rate.NewLimiter(rate.Limit(rps), burst)
+}
+
+// UpdateOSRMRateLimits updates the OSRM rate limiter
+func UpdateOSRMRateLimits(rps float64, burst int) {
+	osrmLimiter = rate.NewLimiter(rate.Limit(rps), burst)
+}
+
+// SetUserAgent sets the User-Agent string
+func SetUserAgent(ua string) {
+	userAgentLock.Lock()
+	defer userAgentLock.Unlock()
+	userAgent = ua
+}
+
+// GetUserAgent returns the current User-Agent string
+func GetUserAgent() string {
+	userAgentLock.RLock()
+	defer userAgentLock.RUnlock()
+	return userAgent
+}
+
+// GetClient returns the global HTTP client
+func GetClient(ctx context.Context) *http.Client {
+	return httpClient
+}
+
+// hostFromURL extracts the host from a URL string
+func hostFromURL(urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+// waitForRateLimit waits for the appropriate rate limiter based on the request URL
+func waitForRateLimit(ctx context.Context, req *http.Request) error {
+	host := hostFromURL(req.URL.String())
+
+	switch host {
+	case hostFromURL(NominatimBaseURL):
+		return nominatimLimiter.Wait(ctx)
+	case hostFromURL(OverpassBaseURL):
+		return overpassLimiter.Wait(ctx)
+	case hostFromURL(OSRMBaseURL):
+		return osrmLimiter.Wait(ctx)
+	default:
+		return nil // No rate limiting for unknown hosts
+	}
+}
+
+// DoRequest performs an HTTP request with rate limiting
+func DoRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
+	// Set User-Agent header
+	req.Header.Set("User-Agent", GetUserAgent())
+
+	// Wait for rate limit
+	if err := waitForRateLimit(ctx, req); err != nil {
+		return nil, err
+	}
+
+	// Perform request
+	return httpClient.Do(req)
+}
+
+// NewRequestWithUserAgent creates a new HTTP request with proper User-Agent header
+// This simplifies creating requests with the correct header throughout the codebase
+func NewRequestWithUserAgent(ctx context.Context, method, url string, body interface{}) (*http.Request, error) {
+	var req *http.Request
+	var err error
+
+	if body != nil {
+		bodyReader, ok := body.(io.Reader)
+		if !ok {
+			return nil, fmt.Errorf("body must implement io.Reader")
+		}
+		req, err = http.NewRequestWithContext(ctx, method, url, bodyReader)
+	} else {
+		req, err = http.NewRequestWithContext(ctx, method, url, nil)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Set required User-Agent for Nominatim's usage policy
+	req.Header.Set("User-Agent", GetUserAgent())
+
+	return req, nil
+}
+
+// Client represents an OSM API client
+type Client struct {
+	logger *slog.Logger
+}
+
+// NewOSMClient creates a new OSM API client
+func NewOSMClient() *Client {
+	return &Client{
+		logger: slog.Default(),
+	}
+}
+
+// SetLogger sets the logger for the client
+func (c *Client) SetLogger(logger *slog.Logger) {
+	c.logger = logger
+}
