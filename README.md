@@ -106,7 +106,7 @@ This MCP server is designed to work with Claude Desktop Client. You can set it u
    This will add an `OSM` entry to the `mcpServers` configuration in Claude Desktop Client. The configuration system intelligently:
    
    - Creates the file if it doesn't exist
-   - Preserves existing tools like TAK when updating the configuration
+   - Preserves existing tools when updating the configuration
    - Uses absolute paths to ensure Claude can find the executable
    - Validates JSON output to prevent corruption
 
@@ -123,13 +123,6 @@ The configuration file will look similar to this:
       "command": "/path/to/osmmcp",
       "args": []
     },
-    "TAK": {
-      "command": "/path/to/takmcp",
-      "args": [
-        "--tak-host=localhost",
-        "--tak-port=8089"
-      ]
-    }
   }
 }
 ```
