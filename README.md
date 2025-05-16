@@ -44,6 +44,34 @@ The server provides LLMs with tools to interact with OpenStreetMap data, includi
 | `find_schools_nearby` | Find educational institutions near a specific location | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 2000, "school_type": "elementary", "limit": 5}` |
 | `find_parking_facilities` | Find parking facilities near a specific location | `{"latitude": 37.7749, "longitude": -122.4194, "radius": 1000, "type": "surface", "include_private": false, "limit": 5}` |
 
+## Improved Geocoding Tools
+
+The geocoding tools have been enhanced to provide more reliable results and better error handling:
+
+### Key Improvements
+
+- **Smart Address Preprocessing**: Automatically sanitizes inputs to improve success rates
+- **Detailed Error Reporting**: Returns structured error responses with error codes and helpful suggestions
+- **Better Diagnostics**: Provides detailed logging to track geocoding issues
+- **Improved Formatting Guide**: Documentation with specific examples of what works well
+
+### Best Practices for Geocoding
+
+For optimal results when using the geocoding tools:
+
+1. **Simplify complex queries**: 
+   - Bad: "Blue Temple (Wat Rong Suea Ten) in Chiang Rai"
+   - Good: "Blue Temple Chiang Rai Thailand"
+
+2. **Add geographic context**: 
+   - Bad: "Eiffel Tower"
+   - Good: "Eiffel Tower, Paris, France"
+
+3. **Read error suggestions**: 
+   - Our enhanced error responses include specific suggestions for fixing failed queries
+
+See the [Geocoding Tools Guide](pkg/tools/docs/geocoding.md) for comprehensive documentation and [AI Prompts for Geocoding](pkg/tools/docs/ai_prompts.md) for examples of how to guide AI systems in using these tools effectively.
+
 ## Code Architecture and Design
 
 The code follows software engineering best practices:

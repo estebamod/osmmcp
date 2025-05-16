@@ -48,9 +48,9 @@ func NewServer() (*Server, error) {
 		server.WithRecovery(),
 	)
 
-	// Create tool registry and register all tools
+	// Create tool registry and register all tools and prompts
 	registry := tools.NewRegistry(logger)
-	registry.RegisterTools(srv)
+	registry.RegisterAll(srv)
 
 	return &Server{
 		srv:    srv,

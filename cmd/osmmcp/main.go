@@ -6,13 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/NERVsystems/osmmcp/pkg/osm"
 	"github.com/NERVsystems/osmmcp/pkg/server"
@@ -119,43 +117,31 @@ func main() {
 		"osrm_rps", osrmRPS,
 		"osrm_burst", osrmBurst)
 
+	// Debug print to stderr to help diagnose MCP initialization issues
+	fmt.Fprintf(os.Stderr, "DEBUG: Creating new server instance\n")
+
+	// Create a new server instance
+	s, err := server.NewServer()
+	if err != nil {
+		logger.Error("failed to create server", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "DEBUG: Server instance created successfully\n")
+
 	// Create context for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Create server with timeout
-	srv := &http.Server{
-		Addr:         ":8080",
-		Handler:      server.NewHandler(logger),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start server in a goroutine
-	go func() {
-		logger.Info("starting server", "addr", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	// Wait for interrupt signal
-	<-ctx.Done()
-	logger.Info("shutting down server...")
-
-	// Create shutdown context with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Attempt graceful shutdown
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("server shutdown error", "error", err)
+	// Run the MCP server with context
+	fmt.Fprintf(os.Stderr, "DEBUG: Starting MCP server\n")
+	if err := s.RunWithContext(ctx); err != nil {
+		logger.Error("server error", "error", err)
 		os.Exit(1)
 	}
 
-	logger.Info("server stopped gracefully")
+	// Server has shut down gracefully
+	logger.Info("server stopped")
 }
 
 // generateClientConfig generates a configuration file for the Claude Desktop Client

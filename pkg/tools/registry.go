@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/NERVsystems/osmmcp/pkg/tools/prompts"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -136,4 +137,16 @@ func (r *Registry) RegisterTools(mcpServer *server.MCPServer) {
 		r.logger.Info("registering tool", "name", def.Name)
 		mcpServer.AddTool(def.Tool, def.Handler)
 	}
+}
+
+// RegisterPrompts registers all prompts with the MCP server.
+func (r *Registry) RegisterPrompts(mcpServer *server.MCPServer) {
+	r.logger.Info("registering geocoding prompts")
+	prompts.RegisterGeocodingPrompts(mcpServer)
+}
+
+// RegisterAll registers all tools and prompts with the MCP server.
+func (r *Registry) RegisterAll(mcpServer *server.MCPServer) {
+	r.RegisterTools(mcpServer)
+	r.RegisterPrompts(mcpServer)
 }
