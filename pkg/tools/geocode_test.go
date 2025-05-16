@@ -393,7 +393,7 @@ func TestParentheticalHandling(t *testing.T) {
 		t.Skip("skipping test in short mode")
 	}
 
-	// Create test request with the problematic Blue Temple query
+	// Create test request with the test query for Merlion Park
 	req := mcp.CallToolRequest{
 		Params: struct {
 			Name      string         `json:"name"`
@@ -404,8 +404,8 @@ func TestParentheticalHandling(t *testing.T) {
 		}{
 			Name: "geocode_address",
 			Arguments: map[string]any{
-				"address": "Blue Temple (Wat Rong Suea Ten)",
-				"region":  "Chiang Rai Thailand",
+				"address": "Merlion Park (Singapore)",
+				"region":  "Singapore",
 			},
 		},
 	}
@@ -445,10 +445,10 @@ func TestParentheticalHandling(t *testing.T) {
 		output.Place.Location.Latitude,
 		output.Place.Location.Longitude)
 
-	// The Blue Temple in Chiang Rai is located approximately at these coordinates
+	// The Merlion Park in Singapore is located approximately at these coordinates
 	// We allow for some variance since the exact coordinates might change with data updates
-	expectedLat := 19.9234
-	expectedLon := 99.8416
+	expectedLat := 1.2868
+	expectedLon := 103.8545
 
 	latDiff := math.Abs(output.Place.Location.Latitude - expectedLat)
 	lonDiff := math.Abs(output.Place.Location.Longitude - expectedLon)

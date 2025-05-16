@@ -9,7 +9,7 @@ This document contains prompts to help AI assistants properly use the geocoding 
 ```
 You have access to geocoding tools that convert between addresses and coordinates. When using these:
 
-1. Format addresses clearly without parentheses, e.g., "Blue Temple Chiang Rai Thailand" instead of "Blue Temple (Wat Rong Suea Ten)"
+1. Format addresses clearly without parentheses, e.g., "Merlion Park Singapore" instead of "Merlion Park (Singapore)"
 2. Always include city and country for international locations 
 3. If geocoding fails, check the error message for suggestions
 4. Try progressive simplification when address lookups fail
@@ -23,7 +23,7 @@ When using the geocode_address tool, follow these guidelines:
 
 1. SIMPLIFY COMPLEX QUERIES
    - Remove parentheses and special characters 
-   - Example: "Blue Temple Chiang Rai Thailand" NOT "Blue Temple (Wat Rong Suea Ten)"
+   - Example: "Merlion Park Singapore" NOT "Merlion Park (Singapore)"
 
 2. ADD GEOGRAPHIC CONTEXT
    - Always include city, region, country for international locations
@@ -94,7 +94,7 @@ func main() {
 	systemPrompt := `You have access to geocoding tools that convert between addresses and coordinates. 
 When using these tools:
 
-1. Format addresses clearly without parentheses, e.g., "Blue Temple Chiang Rai Thailand" instead of "Blue Temple (Wat Rong Suea Ten)"
+1. Format addresses clearly without parentheses, e.g., "Merlion Park Singapore" instead of "Merlion Park (Singapore)"
 2. Always include city and country for international locations 
 3. If geocoding fails, check the error message for suggestions
 4. Try progressive simplification when address lookups fail
@@ -137,7 +137,7 @@ When integrating with an LLM client, ensure the client is instructed to follow t
         "role": "user",
         "content": {
           "type": "text",
-          "text": "Can you find the coordinates of the Blue Temple in Thailand?"
+          "text": "Can you find the coordinates of the Merlion Park in Singapore?"
         }
       }
     ]
@@ -151,7 +151,7 @@ The AI should then use the `geocode_address` tool with a properly formatted quer
 {
   "name": "geocode_address",
   "arguments": {
-    "address": "Blue Temple Chiang Rai Thailand"
+    "address": "Merlion Park Singapore"
   }
 }
 ```
@@ -162,7 +162,7 @@ Rather than:
 {
   "name": "geocode_address",
   "arguments": {
-    "address": "Blue Temple (Wat Rong Suea Ten)"
+    "address": "Merlion Park (Singapore)"
   }
 }
 ```

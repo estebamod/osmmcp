@@ -41,7 +41,7 @@ const (
 )
 
 // Default region to append for single-token or landmark queries
-var defaultRegion = "Chiang Rai Thailand"
+var defaultRegion = "Singapore"
 
 // Global cache and request group to deduplicate in-flight requests
 var (
@@ -130,10 +130,10 @@ func GeocodeAddressTool() mcp.Tool {
 		mcp.WithDescription("Convert an address or place name to geographic coordinates"),
 		mcp.WithString("address",
 			mcp.Required(),
-			mcp.Description("The address or place name to geocode. For best results, format addresses clearly without parentheses and include city/country information for locations outside the US. For international or tourist sites, include the region or country name. Example: 'Blue Temple Chiang Rai Thailand' instead of 'Blue Temple (Wat Rong Suea Ten)'."),
+			mcp.Description("The address or place name to geocode. For best results, format addresses clearly without parentheses and include city/country information for locations outside the US. For international or tourist sites, include the region or country name. Example: 'Merlion Park Singapore' instead of 'Merlion Park (Singapore)'."),
 		),
 		mcp.WithString("region",
-			mcp.Description("Optional region context to improve results for ambiguous queries (e.g., 'Chiang Rai Thailand'). Will be automatically appended to short queries."),
+			mcp.Description("Optional region context to improve results for ambiguous queries (e.g., 'Singapore'). Will be automatically appended to short queries."),
 			mcp.DefaultString(""),
 		),
 	)
@@ -731,3 +731,11 @@ func HandleReverseGeocode(ctx context.Context, rawInput mcp.CallToolRequest) (*m
 
 	return mcp.NewToolResultText(string(outputJSON)), nil
 }
+
+// Example end-to-end flow for "Merlion Park (Singapore)"
+// 1. sanitizeAddress returns two siblings:
+//    • "Merlion Park"
+//    • "Singapore"
+// 2. Engine sends first query with appended region, gets results.
+// 3. Engine sorts results by importance and selects the best match.
+// 4. Response cached and returned as structured JSON.
