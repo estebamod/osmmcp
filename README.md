@@ -1,3 +1,5 @@
+[![Go](https://github.com/NERVsystems/osmmcp/actions/workflows/go.yml/badge.svg)](https://github.com/NERVsystems/osmmcp/actions/workflows/go.yml)
+
 # OpenStreetMap MCP Server (Go Implementation)
 
 This is a Go implementation of the OpenStreetMap MCP server that enhances LLM capabilities with location-based services and geospatial data.
