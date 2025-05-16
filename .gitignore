@@ -31,3 +31,4 @@ test-config.json
 # Scratch space
 tmp/
 tmp/**/* 
+osmmcp

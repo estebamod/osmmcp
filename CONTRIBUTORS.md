@@ -1,3 +1,3 @@
 # Contributors
 
-- Patrick Finn (@pdfinn): Creator and contributor versions v1.0. 
+- Peter Finn (@pdfinn): Creator and contributor versions v0.0.0–Present
