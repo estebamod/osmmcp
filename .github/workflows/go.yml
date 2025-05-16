@@ -1,0 +1,82 @@
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Test
+      run: go test -v ./...
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Set build variables
+      id: vars
+      run: |
+        echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+        echo "COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date -u +"%Y-%m-%d")" >> $GITHUB_ENV
+
+    - name: Build for all platforms
+      run: |
+        mkdir -p dist
+        GOOS=linux GOARCH=amd64 go build -ldflags="-X main.buildVersion=$VERSION -X main.buildCommit=$COMMIT -X main.buildDate=$BUILD_DATE" -o dist/osmmcp-linux-amd64 ./cmd/osmmcp
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-X main.buildVersion=$VERSION -X main.buildCommit=$COMMIT -X main.buildDate=$BUILD_DATE" -o dist/osmmcp-darwin-amd64 ./cmd/osmmcp
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-X main.buildVersion=$VERSION -X main.buildCommit=$COMMIT -X main.buildDate=$BUILD_DATE" -o dist/osmmcp-darwin-arm64 ./cmd/osmmcp
+        GOOS=windows GOARCH=amd64 go build -ldflags="-X main.buildVersion=$VERSION -X main.buildCommit=$COMMIT -X main.buildDate=$BUILD_DATE" -o dist/osmmcp-windows-amd64.exe ./cmd/osmmcp
+
+    - name: Package binaries
+      run: |
+        cd dist
+        tar -czvf osmmcp-linux-amd64-v$VERSION.tar.gz osmmcp-linux-amd64
+        tar -czvf osmmcp-darwin-amd64-v$VERSION.tar.gz osmmcp-darwin-amd64
+        tar -czvf osmmcp-darwin-arm64-v$VERSION.tar.gz osmmcp-darwin-arm64
+        zip osmmcp-windows-amd64-v$VERSION.zip osmmcp-windows-amd64.exe
+
+    - name: Generate checksums
+      run: |
+        cd dist
+        sha256sum osmmcp-linux-amd64-v$VERSION.tar.gz osmmcp-darwin-amd64-v$VERSION.tar.gz osmmcp-darwin-arm64-v$VERSION.tar.gz osmmcp-windows-amd64-v$VERSION.zip > SHA256SUMS.txt
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/osmmcp-linux-amd64-v${{ env.VERSION }}.tar.gz
+          dist/osmmcp-darwin-amd64-v${{ env.VERSION }}.tar.gz
+          dist/osmmcp-darwin-arm64-v${{ env.VERSION }}.tar.gz
+          dist/osmmcp-windows-amd64-v${{ env.VERSION }}.zip
+          dist/SHA256SUMS.txt
+        generate_release_notes: true 
