@@ -19,6 +19,14 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.24'
+        
+    - name: Check Go module versions
+      run: |
+        echo "Checking for multiple go.mod files..."
+        find . -name go.mod -exec echo {} \; -exec cat {} \;
+        if find . -name go.mod | grep -v "^./go.mod"; then
+          echo "Warning: Multiple go.mod files found. Make sure they all use compatible Go versions."
+        fi
 
     - name: Build
       run: go build -v ./...
@@ -41,6 +49,14 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.24'
+        
+    - name: Check Go module versions
+      run: |
+        echo "Checking for multiple go.mod files..."
+        find . -name go.mod -exec echo {} \; -exec cat {} \;
+        if find . -name go.mod | grep -v "^./go.mod"; then
+          echo "Warning: Multiple go.mod files found. Make sure they all use compatible Go versions."
+        fi
 
     - name: Set build variables
       id: vars
